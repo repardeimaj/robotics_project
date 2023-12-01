@@ -1,6 +1,6 @@
 import cv2
 import numpy as np
-import glob
+import general_robotics_toolbox as rox
 
 class Directions:
         x = np.array([1, 0, 0])
@@ -24,22 +24,25 @@ class Block:
     
     """
     
-    def __init__(self, size, markerOrientation):
+    def __init__(self, markerOrientation):
                 
         self.objectPoints = dict()
+        self.T = None
+        
+        
         for markerID, orientation in markerOrientation.items():
             
             # find the ArUco marker coordinates in the block coordinate frame
             z_face, x_face = orientation
             y_face = np.cross(z_face, x_face)
             
-            objectPoints = (size/2) * ( [ -x_face + y_face, x_face + y_face, 
-                                         x_face - y_face, -x_face - y_face] + z_face)
+            objectPoints = (25e-3/2) * ( [ -x_face + y_face, x_face + y_face, 
+                                         x_face - y_face, -x_face - y_face] ) + (30e-3/2) * z_face
             
             self.objectPoints[markerID] = objectPoints      
 
 
-def getRpfromImage(image, cameraMatrix, blocks, arucoDict=cv2.aruco.DICT_4X4_1000):
+def getTransformsFromImage(image, cameraMatrix, blocks, arucoDict=cv2.aruco.DICT_4X4_1000):
     """Find the homogenous transform matricies from the camera to each block
     
     image: an image containing blocks
@@ -67,8 +70,7 @@ def getRpfromImage(image, cameraMatrix, blocks, arucoDict=cv2.aruco.DICT_4X4_100
         print("Warning: No corners found.")
 
 
-    R = dict()
-    p = dict()
+    T = dict()
     for block in blocks:
         X = []
         y = []
@@ -87,11 +89,37 @@ def getRpfromImage(image, cameraMatrix, blocks, arucoDict=cv2.aruco.DICT_4X4_100
         y = np.concatenate(y)
         
         ret, rvecs, tvecs = cv2.solvePnP(X, y, cameraMatrix, None)
-
-        R[block], _ = cv2.Rodrigues(rvecs)
-        p[block] = tvecs
         
-    return R, p
+        R, _ = cv2.Rodrigues(rvecs)
+        p = tvecs
+        
+        T[block] = rox.Transform(R, p)
+        
+    return T
+
+
+def updateBlockPositions(image, blocks, robot, q, cameraMatrix=None, T_camera=None):
+    
+    if cameraMatrix is None:
+        cameraMatrix = np.array([[ 969.7818, 0, 257.6287],
+                             [ 0, 966.95, 245.2249 ],
+                             [ 0, 0, 1 ]])
+        
+    if T_camera is None:
+        R_camera = np.array([[0, 0, -1], [-1, 0, 0], [0, 1, 0]])
+        p_camera = np.array([[0.0640], [0], [-0.0481]])
+        T_camera = rox.Transform(R_camera, p_camera)
+
+    q = list(map(lambda x: x * np.pi/180, q))
+
+    T_tool = rox.fwdkin(robot, q)
+
+    transformsByBlock = getTransformsFromImage(image, cameraMatrix, blocks)
+
+    for (block, T) in transformsByBlock.items():
+
+        # compute block position in world coordinates   
+        block.T = T_tool * T_camera * T
 
 
 if __name__ == "__main__":
@@ -141,10 +169,3 @@ if __name__ == "__main__":
         ret, image = camera.read()
         if ret:
             break
-
-
-    R, p = getRpfromImage(image, cameraMatrix, blocks)
-    print(R)
-    print(p)
-
-    
