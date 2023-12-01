@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import time
-from Arm_Lib import Arm_Device
+#from Arm_Lib import Arm_Device
 import math
 import numpy as np
 import general_robotics_toolbox as rox
@@ -72,42 +72,45 @@ def jacobian_inverse(robot,q0,Rd,Pd,Nmax,alpha,tol):
     return q[:, iternum]
 
 # define the main function
-def inv_kin(Rd, Pd):
+def inv_kin(Rd, Pd, robot=None):
+    
     # make sure q0 is in radians
     q0 = np.array(np.transpose([25, 50, 75, 30, 30]))*math.pi/180
-    
+
     tol = np.array(np.transpose([[0.02, 0.02, 0.02, 0.001, 0.001, 0.001]]))
     Nmax = 100
     alpha = 0.1
+    
+    if robot is None:
 
-    # Define all the joint lengths [m]
-    l0 = 61 * 10**-3
-    l1 = 43.5 * 10**-3
-    l2 = 82.85 * 10**-3
-    l3 = 82.85 * 10**-3
-    l4 = 73.85 * 10**-3
-    l5 = 54.57 * 10**-3
+        # Define all the joint lengths [m]
+        l0 = 61 * 10**-3
+        l1 = 43.5 * 10**-3
+        l2 = 82.85 * 10**-3
+        l3 = 82.85 * 10**-3
+        l4 = 73.85 * 10**-3
+        l5 = 54.57 * 10**-3
 
-    # define the unit vectors
-    ex = np.array([1, 0, 0])
-    ey = np.array([0, 1, 0])
-    ez = np.array([0, 0, 1])
+        # define the unit vectors
+        ex = np.array([1, 0, 0])
+        ey = np.array([0, 1, 0])
+        ez = np.array([0, 0, 1])
 
-    # Define the position vectors from i-1 -> i
-    P01 = (l0 + l1) * ez
-    P12 = np.zeros(3)
-    P23 = l2 * ex
-    P34 = -1*l3 * ez
-    P45 = np.zeros(3)
-    P5T = -1*(l4 + l5) * ex
+        # Define the position vectors from i-1 -> i
+        P01 = (l0 + l1) * ez
+        P12 = np.zeros(3)
+        P23 = l2 * ex
+        P34 = -1*l3 * ez
+        P45 = np.zeros(3)
+        P5T = -1*(l4 + l5) * ex
 
-    # define the class inputs: rotation axes (H), position vectors (P), and joint_type
-    H = np.array([ez, -1*ey, -1*ey, -1*ey, -1*ex]).T
-    P = np.array([P01, P12, P23, P34, P45, P5T]).T
-    joint_type = [0,0,0,0,0]
+        # define the class inputs: rotation axes (H), position vectors (P), and joint_type
+        H = np.array([ez, -1*ey, -1*ey, -1*ey, -1*ex]).T
+        P = np.array([P01, P12, P23, P34, P45, P5T]).T
+        joint_type = [0,0,0,0,0]
 
-# define the Robot class
-    robot = rox.Robot(H, P, joint_type)
+    # define the Robot class
+        robot = rox.Robot(H, P, joint_type)
 
 # compute the inverse kinematics
     q = jacobian_inverse(robot,q0,Rd,Pd,Nmax,alpha,tol)
@@ -115,6 +118,8 @@ def inv_kin(Rd, Pd):
     q = q * 180 / math.pi
     q = np.clip(q, 0, 180)
     return(q)
+
+
 
 # execute the main function
 if __name__ == "__main__" :

@@ -1,7 +1,6 @@
 import cv2
 import numpy as np
-import glob
-import matplotlib.pyplot as plt
+import general_robotics_toolbox as rox
 
 class Directions:
         x = np.array([1, 0, 0])
@@ -25,22 +24,25 @@ class Block:
     
     """
     
-    def __init__(self, size:float, markerOrientation: dict[int: [np.ndarray, np.ndarray]]):
+    def __init__(self, markerOrientation):
                 
         self.objectPoints = dict()
+        self.T = None
+        
+        
         for markerID, orientation in markerOrientation.items():
             
             # find the ArUco marker coordinates in the block coordinate frame
             z_face, x_face = orientation
             y_face = np.cross(z_face, x_face)
             
-            objectPoints = (size/2) * ( [ -x_face + y_face, x_face + y_face, 
-                                         x_face - y_face, -x_face - y_face] + z_face)
+            objectPoints = (25e-3/2) * ( [ -x_face + y_face, x_face + y_face, 
+                                         x_face - y_face, -x_face - y_face] ) + (30e-3/2) * z_face
             
             self.objectPoints[markerID] = objectPoints      
 
 
-def getHomogenousTransformsMatricies(image, cameraMatrix, blocks, arucoDict=cv2.aruco.DICT_4X4_1000):
+def getTransformsFromImage(image, cameraMatrix, blocks, arucoDict=cv2.aruco.DICT_4X4_1000):
     """Find the homogenous transform matricies from the camera to each block
     
     image: an image containing blocks
@@ -53,7 +55,7 @@ def getHomogenousTransformsMatricies(image, cameraMatrix, blocks, arucoDict=cv2.
     arucoParams = cv2.aruco.DetectorParameters_create()
     (corners, ids, rejected) = cv2.aruco.detectMarkers(image, arucoDict, parameters=arucoParams)
 
-    corners_dict = dict()
+    imagePoints = dict()
 
     if len(corners) > 0:
 
@@ -62,32 +64,108 @@ def getHomogenousTransformsMatricies(image, cameraMatrix, blocks, arucoDict=cv2.
         for (markerCorner, markerID) in zip(corners, ids):
 
             print(f"[INFO] ArUco marker ID: {markerID}")
-            corners_dict[markerID] = markerCorner.reshape((4, 2))
+            imagePoints[markerID] = markerCorner.reshape((4, 2))
 
     else:
         print("Warning: No corners found.")
 
 
-    homogenousTransformsMatricies = dict()
-    for block in [block1]:
+    T = dict()
+    for block in blocks:
         X = []
         y = []
         for markerID in block.objectPoints:
 
-            if markerID not in corners_dict:
+            if markerID not in imagePoints:
                 continue
 
             X.append(block.objectPoints[markerID])
-            y.append(corners_dict[markerID])
+            y.append(imagePoints[markerID])
 
-        X = np.concatenate(X)  # TODO: write better names for X, y (and corners_dict)
+        if len(X) == 0:
+            continue
+
+        X = np.concatenate(X)  # TODO: write better names for X, y
         y = np.concatenate(y)
         
-        ret, rvecs, t = cv2.solvePnP(X, y, cameraMatrix, None)
-
+        ret, rvecs, tvecs = cv2.solvePnP(X, y, cameraMatrix, None)
+        
         R, _ = cv2.Rodrigues(rvecs)
-        H = np.concatenate([R, t], axis=1)
+        p = tvecs
         
-        homogenousTransformsMatricies[block] = H
+        T[block] = rox.Transform(R, p)
         
-    return homogenousTransformsMatricies
+    return T
+
+
+def updateBlockPositions(image, blocks, robot, q, cameraMatrix=None, T_camera=None):
+    
+    if cameraMatrix is None:
+        cameraMatrix = np.array([[ 969.7818, 0, 257.6287],
+                             [ 0, 966.95, 245.2249 ],
+                             [ 0, 0, 1 ]])
+        
+    if T_camera is None:
+        R_camera = np.array([[0, 0, -1], [-1, 0, 0], [0, 1, 0]])
+        p_camera = np.array([[0.0640], [0], [-0.0481]])
+        T_camera = rox.Transform(R_camera, p_camera)
+
+    q = list(map(lambda x: x * np.pi/180, q))
+
+    T_tool = rox.fwdkin(robot, q)
+
+    transformsByBlock = getTransformsFromImage(image, cameraMatrix, blocks)
+
+    for (block, T) in transformsByBlock.items():
+
+        # compute block position in world coordinates   
+        block.T = T_tool * T_camera * T
+
+
+if __name__ == "__main__":
+
+    print("hoping to detect a block")
+
+
+    block1 = Block(0.03, { 0: [ Directions.z,  Directions.y],
+			               1: [-Directions.z, -Directions.x],
+                           2: [ Directions.x,  Directions.y],
+                           3: [-Directions.y,  Directions.x],
+                           4: [-Directions.x, -Directions.y],
+                           5: [ Directions.y, -Directions.x]})
+
+    block2 = Block(0.03, { 6: [ Directions.z,  Directions.y],
+			               7: [-Directions.z, -Directions.x],
+                           8: [ Directions.x,  Directions.y],
+                           9: [-Directions.y,  Directions.x],
+                          10:[-Directions.x, -Directions.y],
+                          11:[ Directions.y, -Directions.x]})
+
+    block3 = Block(0.03, {12:[ Directions.z,  Directions.y],
+			              13:[-Directions.z, -Directions.x],
+                          14:[ Directions.x,  Directions.y],
+                          15:[-Directions.y,  Directions.x],
+                          16:[-Directions.x, -Directions.y],
+                          17:[ Directions.y, -Directions.x]})
+
+    block4 = Block(0.03, {18:[ Directions.z,  Directions.y],
+                          19:[-Directions.z, -Directions.x],
+                          20:[ Directions.x,  Directions.y],
+                          21:[-Directions.y,  Directions.x],
+                          22:[-Directions.x, -Directions.y],
+                          23:[ Directions.y, -Directions.x]})
+
+    blocks = [block1, block2, block3, block4]
+
+
+
+    cameraMatrix = np.array([[ 9.551e3, 0, 4.085e2],
+                             [ 0, 1.209e4, -6.502 ],
+                             [ 0, 0, 1 ]])
+
+    # find camera port
+    for port in range(10):
+        camera = cv2.VideoCapture(port)
+        ret, image = camera.read()
+        if ret:
+            break
